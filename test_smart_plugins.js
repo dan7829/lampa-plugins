@@ -46,6 +46,7 @@ function loadSmartBookmarks(context) {
             '  hasPendingInReleasedSeason: hasPendingInReleasedSeason,',
             '  targetMarkForAnalysis: targetMarkForAnalysis,',
             '  shouldApplyAnalysis: shouldApplyAnalysis,',
+            '  handleFullEvent: handleFullEvent,',
             '  setFavoriteMark: setFavoriteMark,',
             '  analyzeShow: analyzeShow,',
             '  runtime: runtime',
@@ -176,6 +177,8 @@ function createSmartContext(options = {}) {
     const favoriteState = {};
     const favoriteCalls = [];
     const watched = Object.assign({ '1:1': 95 }, options.watched || {});
+    const pluginList = (options.plugins || []).map((plugin) => Object.assign({}, plugin));
+    const pluginSaves = [];
     const card = {
         id: 10,
         source: 'tmdb',
@@ -262,6 +265,15 @@ function createSmartContext(options = {}) {
                         return [];
                     }
                 },
+                Plugins: {
+                    get() {
+                        return pluginList.map((plugin) => plugin);
+                    },
+                    save() {
+                        pluginSaves.push(pluginList.map((plugin) => Object.assign({}, plugin)));
+                        storage.set('plugins', pluginList);
+                    }
+                },
                 Listener: {
                     follow() {},
                     remove() {},
@@ -276,6 +288,8 @@ function createSmartContext(options = {}) {
     context.__favoriteState = favoriteState;
     context.__favoriteCalls = favoriteCalls;
     context.__watched = watched;
+    context.__plugins = pluginList;
+    context.__pluginSaves = pluginSaves;
     context.__card = card;
 
     return context;
@@ -284,6 +298,8 @@ function createSmartContext(options = {}) {
 function createCounterContext() {
     const storage = makeStorage();
     const favoriteState = {};
+    const pluginList = [];
+    const pluginSaves = [];
     const card = {
         id: 10,
         source: 'tmdb',
@@ -357,6 +373,15 @@ function createCounterContext() {
                         return favoriteState[card.id] || {};
                     }
                 },
+                Plugins: {
+                    get() {
+                        return pluginList.map((plugin) => plugin);
+                    },
+                    save() {
+                        pluginSaves.push(pluginList.map((plugin) => Object.assign({}, plugin)));
+                        storage.set('plugins', pluginList);
+                    }
+                },
                 Listener: {
                     follow() {},
                     remove() {}
@@ -374,6 +399,8 @@ function createCounterContext() {
     context.Lampa = context.window.Lampa;
     context.__storage = storage;
     context.__favoriteState = favoriteState;
+    context.__plugins = pluginList;
+    context.__pluginSaves = pluginSaves;
     context.__card = card;
 
     return context;
@@ -384,16 +411,22 @@ function createCounterContext() {
     const smart = loadSmartBookmarks(smartContext);
     const card = smartContext.__card;
 
-    assert.strictEqual(smart.PLUGIN_VERSION, '1.0.0');
+    assert.strictEqual(smart.PLUGIN_VERSION, '1.0.1');
     assert.strictEqual(smart.validCache({ version: 1, items: {} }), false);
-    assert.strictEqual(smart.validCache({ version: 1, pluginVersion: '1.0.0', items: {} }), true);
-    smartContext.__storage.set('plugins', [{ url: 'https://example.com/plugins/smart_bookmarks.js?v=old', status: 1 }]);
+    assert.strictEqual(smart.validCache({ version: 1, pluginVersion: '1.0.1', items: {} }), true);
+    smartContext.__plugins.push({
+        url: 'https://example.com/plugins/smart_bookmarks.js?v=old',
+        status: 1,
+        description: 'old',
+        version: '1.0.0'
+    });
     smart.registerPluginMetadata();
-    assert.strictEqual(smartContext.__storage.data.plugins[0].name, 'Smart Bookmarks');
-    assert.strictEqual(smartContext.__storage.data.plugins[0].author, 'dan7829');
-    assert.strictEqual(smartContext.__storage.data.plugins[0].descr, 'Автоматически поддерживает статусы сериалов в закладках Lampa.');
-    assert.strictEqual(smartContext.__storage.data.plugins[0].description, 'Автоматически поддерживает статусы сериалов в закладках Lampa.');
-    assert.strictEqual(smartContext.__storage.data.plugins[0].version, '1.0.0');
+    assert.strictEqual(smartContext.__plugins[0].name, 'Smart Bookmarks');
+    assert.strictEqual(smartContext.__plugins[0].author, 'dan7829');
+    assert.strictEqual(smartContext.__plugins[0].descr, 'Автоматически поддерживает статусы сериалов в закладках Lampa.');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(smartContext.__plugins[0], 'description'), false);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(smartContext.__plugins[0], 'version'), false);
+    assert.strictEqual(smartContext.__pluginSaves.length, 1);
     assert.strictEqual(smart.cardKey(card), 'tmdb:10');
     assert.strictEqual(smart.isTvCandidate(card), true);
     assert.strictEqual(smart.isTvCandidate({ id: 11, source: 'tmdb', method: 'movie' }), false);
@@ -429,7 +462,11 @@ function createCounterContext() {
     assert.strictEqual(smart.hasPendingInReleasedSeason(currentSeasonPending), true);
     assert.strictEqual(smart.hasPendingInReleasedSeason(nextSeasonPending), false);
 
+    assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 1, ended: false, pending: false, complete: true }, 'full'), false);
     assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 1, ended: false, pending: false, complete: true }, 'history'), true);
+    smart.handleFullEvent({ data: { movie: card } });
+    assert.strictEqual(smart.runtime.lastFullCard.id, 10);
+    assert.strictEqual(smart.runtime.queue.length, 0);
     smartContext.__favoriteState[10] = { viewed: 10 };
     assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 1, ended: false, pending: false, complete: true }, 'history'), false);
     smartContext.__favoriteState[10] = { look: 10 };
@@ -476,21 +513,27 @@ function createCounterContext() {
     html.appendChild(view);
     const instance = { data: card, html };
 
-    assert.strictEqual(counter.PLUGIN_VERSION, '1.0.0');
+    assert.strictEqual(counter.PLUGIN_VERSION, '1.0.1');
     assert.strictEqual(counter.CACHE_VERSION, 1);
-    counterContext.__storage.set('plugins', [{ url: 'https://example.com/plugins/new_episodes_counter.js?v=old', status: 1 }]);
+    counterContext.__plugins.push({
+        url: 'https://example.com/plugins/new_episodes_counter.js?v=old',
+        status: 1,
+        description: 'old',
+        version: '1.0.0'
+    });
     counter.registerPluginMetadata();
-    assert.strictEqual(counterContext.__storage.data.plugins[0].name, 'New Episodes Counter');
-    assert.strictEqual(counterContext.__storage.data.plugins[0].author, 'dan7829');
-    assert.strictEqual(counterContext.__storage.data.plugins[0].descr, 'Показывает на карточках сериалов количество вышедших непросмотренных серий.');
-    assert.strictEqual(counterContext.__storage.data.plugins[0].description, 'Показывает на карточках сериалов количество вышедших непросмотренных серий.');
-    assert.strictEqual(counterContext.__storage.data.plugins[0].version, '1.0.0');
+    assert.strictEqual(counterContext.__plugins[0].name, 'New Episodes Counter');
+    assert.strictEqual(counterContext.__plugins[0].author, 'dan7829');
+    assert.strictEqual(counterContext.__plugins[0].descr, 'Показывает на карточках сериалов количество вышедших непросмотренных серий.');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(counterContext.__plugins[0], 'description'), false);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(counterContext.__plugins[0], 'version'), false);
+    assert.strictEqual(counterContext.__pluginSaves.length, 1);
     assert.strictEqual(counter.cardKey(card), 'tmdb:10');
     assert.strictEqual(counter.isTvCandidate(card), true);
 
     counterContext.__storage.set('new_episodes_counter_cache', {
         version: 1,
-        pluginVersion: '1.0.0',
+        pluginVersion: '1.0.1',
         updatedAt: Date.now(),
         items: {
             'tmdb:10': {

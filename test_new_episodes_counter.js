@@ -168,6 +168,8 @@ function createContext(options) {
     const apiCalls = [];
     const listenerEvents = [];
     const sentEvents = [];
+    const pluginList = (options.plugins || []).map((plugin) => Object.assign({}, plugin));
+    const pluginSaves = [];
     const timers = [];
     const date = createFakeDate(options.now || '2026-06-15T12:00:00Z');
     const watched = Object.assign({}, options.watched || { '1:1': 95 });
@@ -233,6 +235,15 @@ function createContext(options) {
                         return Object.assign({}, favoriteState[item.id] || {});
                     }
                 },
+                Plugins: {
+                    get() {
+                        return pluginList.map((plugin) => plugin);
+                    },
+                    save() {
+                        pluginSaves.push(pluginList.map((plugin) => Object.assign({}, plugin)));
+                        storage.set('plugins', pluginList);
+                    }
+                },
                 Listener: {
                     follow(name, handler) {
                         listenerEvents.push(['follow', name, handler]);
@@ -257,6 +268,8 @@ function createContext(options) {
     context.__apiCalls = apiCalls;
     context.__listenerEvents = listenerEvents;
     context.__sentEvents = sentEvents;
+    context.__plugins = pluginList;
+    context.__pluginSaves = pluginSaves;
     context.__timers = timers;
     context.__date = date;
     context.__watched = watched;
@@ -352,6 +365,7 @@ async function runTest(name, fn) {
         const context = createContext({ storage: { new_episodes_counter_cache: { version: 1, items: [] } } });
         const counter = loadCounter(context);
 
+        assert.strictEqual(counter.PLUGIN_VERSION, '1.0.1');
         assert.strictEqual(counter.validCache(null), false);
         assert.strictEqual(counter.validCache({ version: 1, items: {}, data: {} }), false);
         assert.strictEqual(counter.validCache({
@@ -404,7 +418,7 @@ async function runTest(name, fn) {
             storage: {
                 new_episodes_counter_cache: {
                     version: 1,
-                    pluginVersion: '1.0.0',
+                    pluginVersion: '1.0.1',
                     updatedAt: Date.now(),
                     items: {
                         'tmdb:10': {
@@ -427,6 +441,27 @@ async function runTest(name, fn) {
         assert.strictEqual(counter.runtime.cardByKey['tmdb:10'].id, 10);
         assert.strictEqual(counter.runtime.hashToKey['hash:1'], 'tmdb:10');
         assert.strictEqual(context.__storage.data.new_episodes_counter_cache.pluginVersion, counter.PLUGIN_VERSION);
+    });
+
+    await runTest('registerPluginMetadata syncs visible fields and removes unused metadata', async () => {
+        const context = createContext({
+            plugins: [{
+                url: 'https://example.com/plugins/new_episodes_counter.js?v=old',
+                status: 1,
+                description: 'old',
+                version: '1.0.0'
+            }]
+        });
+        const counter = loadCounter(context);
+
+        counter.registerPluginMetadata();
+
+        assert.strictEqual(context.__plugins[0].name, 'New Episodes Counter');
+        assert.strictEqual(context.__plugins[0].author, 'dan7829');
+        assert.strictEqual(context.__plugins[0].descr, 'Показывает на карточках сериалов количество вышедших непросмотренных серий.');
+        assert.strictEqual(Object.prototype.hasOwnProperty.call(context.__plugins[0], 'description'), false);
+        assert.strictEqual(Object.prototype.hasOwnProperty.call(context.__plugins[0], 'version'), false);
+        assert.strictEqual(context.__pluginSaves.length, 1);
     });
 
     await runTest('data cache expires by configured ttl', async () => {

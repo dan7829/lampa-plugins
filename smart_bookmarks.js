@@ -16,7 +16,7 @@
      * Плагин использует только штатные API Lampa: Favorite, Timeline и TMDB.
      */
 
-    var PLUGIN_VERSION = '1.0.0';
+    var PLUGIN_VERSION = '1.0.1';
     var PLUGIN_NAME = 'Smart Bookmarks';
     var PLUGIN_AUTHOR = 'dan7829';
     var PLUGIN_DESCRIPTION = 'Автоматически поддерживает статусы сериалов в закладках Lampa.';
@@ -152,47 +152,44 @@
 
     function registerPluginMetadata() {
         try {
-            var plugins = storageGet('plugins', []);
+            if (!window.Lampa || !Lampa.Plugins || !Lampa.Plugins.get || !Lampa.Plugins.save) return;
+
             var currentUrl = currentPluginUrl();
             var changed = false;
 
-            if (!Array.isArray(plugins)) return;
+            Lampa.Plugins.get().forEach(function (plugin) {
+                if (!plugin || typeof plugin !== 'object' || !plugin.url || !samePluginUrl(plugin.url, currentUrl)) return;
 
-            plugins = plugins.map(function (plugin) {
-                var item = typeof plugin === 'string' ? { url: plugin, status: 1 } : clone(plugin);
-
-                if (!item.url || !samePluginUrl(item.url, currentUrl)) return plugin;
-
-                if (item.name !== PLUGIN_NAME) {
-                    item.name = PLUGIN_NAME;
+                if (plugin.name !== PLUGIN_NAME) {
+                    plugin.name = PLUGIN_NAME;
                     changed = true;
                 }
 
-                if (item.author !== PLUGIN_AUTHOR) {
-                    item.author = PLUGIN_AUTHOR;
+                if (plugin.author !== PLUGIN_AUTHOR) {
+                    plugin.author = PLUGIN_AUTHOR;
                     changed = true;
                 }
 
-                if (item.descr !== PLUGIN_DESCRIPTION) {
-                    item.descr = PLUGIN_DESCRIPTION;
+                if (plugin.descr !== PLUGIN_DESCRIPTION) {
+                    plugin.descr = PLUGIN_DESCRIPTION;
                     changed = true;
                 }
 
-                if (item.description !== PLUGIN_DESCRIPTION) {
-                    item.description = PLUGIN_DESCRIPTION;
+                if (Object.prototype.hasOwnProperty.call(plugin, 'description')) {
+                    delete plugin.description;
                     changed = true;
                 }
 
-                if (item.version !== PLUGIN_VERSION) {
-                    item.version = PLUGIN_VERSION;
+                if (Object.prototype.hasOwnProperty.call(plugin, 'version')) {
+                    delete plugin.version;
                     changed = true;
                 }
-
-                return item;
             });
 
-            if (changed) storageSet('plugins', plugins);
-        } catch (e) {}
+            if (changed) Lampa.Plugins.save();
+        } catch (e) {
+            debug('plugin metadata sync failed', e);
+        }
     }
 
     function freshCache() {
@@ -775,7 +772,7 @@
         if (!targetMarkForAnalysis(analysis)) return false;
 
         if (analysis.count > 0) {
-            if (reason === 'history' || reason === 'timeline' || reason === 'full') return true;
+            if (reason === 'history' || reason === 'timeline') return true;
             return mark === 'look' || mark === 'continued';
         }
 
@@ -986,7 +983,6 @@
 
         runtime.lastFullCard = normalizeCard(card);
         runtime.lastFullAt = Date.now();
-        enqueue(card, 'full');
     }
 
     function sendStateChanged(reason, card, key) {
