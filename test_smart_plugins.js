@@ -47,6 +47,8 @@ function loadSmartBookmarks(context) {
             '  targetMarkForAnalysis: targetMarkForAnalysis,',
             '  shouldApplyAnalysis: shouldApplyAnalysis,',
             '  handleFullEvent: handleFullEvent,',
+            '  scanFavorites: scanFavorites,',
+            '  analyzeAndApply: analyzeAndApply,',
             '  setFavoriteMark: setFavoriteMark,',
             '  analyzeShow: analyzeShow,',
             '  runtime: runtime',
@@ -174,9 +176,10 @@ function makeElement(className, tagName = 'div') {
 
 function createSmartContext(options = {}) {
     const storage = makeStorage();
-    const favoriteState = {};
+    const favoriteState = Object.assign({}, options.favoriteState || {});
     const favoriteCalls = [];
     const watched = Object.assign({ '1:1': 95 }, options.watched || {});
+    const favoriteLists = options.favoriteLists || {};
     const pluginList = (options.plugins || []).map((plugin) => Object.assign({}, plugin));
     const pluginSaves = [];
     const card = {
@@ -261,8 +264,8 @@ function createSmartContext(options = {}) {
                         favoriteCalls.push(['remove', type, item.id]);
                         if (favoriteState[item.id]) delete favoriteState[item.id][type];
                     },
-                    get() {
-                        return [];
+                    get(params) {
+                        return (favoriteLists[params.type] || []).map((item) => Object.assign({}, item));
                     }
                 },
                 Plugins: {
@@ -411,9 +414,9 @@ function createCounterContext() {
     const smart = loadSmartBookmarks(smartContext);
     const card = smartContext.__card;
 
-    assert.strictEqual(smart.PLUGIN_VERSION, '1.0.1');
+    assert.strictEqual(smart.PLUGIN_VERSION, '1.0.2');
     assert.strictEqual(smart.validCache({ version: 1, items: {} }), false);
-    assert.strictEqual(smart.validCache({ version: 1, pluginVersion: '1.0.1', items: {} }), true);
+    assert.strictEqual(smart.validCache({ version: 1, pluginVersion: '1.0.2', items: {} }), true);
     smartContext.__plugins.push({
         url: 'https://example.com/plugins/smart_bookmarks.js?v=old',
         status: 1,
@@ -464,6 +467,7 @@ function createCounterContext() {
 
     assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 1, ended: false, pending: false, complete: true }, 'full'), false);
     assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 1, ended: false, pending: false, complete: true }, 'history'), true);
+    assert.strictEqual(smart.shouldApplyAnalysis(card, { count: 0, ended: false, pendingInReleasedSeason: false, complete: true }, 'history'), true);
     smart.handleFullEvent({ data: { movie: card } });
     assert.strictEqual(smart.runtime.lastFullCard.id, 10);
     assert.strictEqual(smart.runtime.queue.length, 0);
@@ -495,6 +499,25 @@ function createCounterContext() {
     const partialSmartAnalysis = await partialSmart.analyzeShow(partialSmartContext.__card);
     assert.strictEqual(partialSmartAnalysis.count, 2);
     assert.strictEqual(partialSmartAnalysis.first.episode_number, 1);
+
+    const historyContinuedContext = createSmartContext({
+        favoriteState: { 10: { continued: 10 } },
+        favoriteLists: {
+            history: [card],
+            continued: [card]
+        },
+        watched: {
+            '1:1': 95,
+            '1:2': 95
+        }
+    });
+    const historyContinuedSmart = loadSmartBookmarks(historyContinuedContext);
+    historyContinuedSmart.scanFavorites();
+    assert.deepStrictEqual(historyContinuedContext.__favoriteCalls, []);
+    assert.strictEqual(historyContinuedSmart.runtime.queued['tmdb:10'].reason, 'history');
+    const historyContinuedAnalysis = await historyContinuedSmart.analyzeAndApply(historyContinuedContext.__card, 'history');
+    assert.strictEqual(historyContinuedAnalysis.targetMark, 'continued');
+    assert.deepStrictEqual(historyContinuedContext.__favoriteCalls, []);
 
     smart.dataCacheSet('sample', { ok: true });
     assert.deepStrictEqual(smart.dataCacheGet('sample'), { ok: true });

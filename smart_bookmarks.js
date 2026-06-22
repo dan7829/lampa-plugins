@@ -16,7 +16,7 @@
      * Плагин использует только штатные API Lampa: Favorite, Timeline и TMDB.
      */
 
-    var PLUGIN_VERSION = '1.0.1';
+    var PLUGIN_VERSION = '1.0.2';
     var PLUGIN_NAME = 'Smart Bookmarks';
     var PLUGIN_AUTHOR = 'dan7829';
     var PLUGIN_DESCRIPTION = 'Автоматически поддерживает статусы сериалов в закладках Lampa.';
@@ -771,8 +771,10 @@
         if (status.viewed) return false;
         if (!targetMarkForAnalysis(analysis)) return false;
 
+        if (reason === 'history') return true;
+
         if (analysis.count > 0) {
-            if (reason === 'history' || reason === 'timeline') return true;
+            if (reason === 'timeline') return true;
             return mark === 'look' || mark === 'continued';
         }
 
@@ -906,11 +908,9 @@
 
     function scanFavorites() {
         collectCards().forEach(function (item) {
-            if (item.category === 'history' && !favoriteStatus(item.card).viewed) {
-                setFavoriteMark(normalizeCard(item.card), 'look');
+            if (item.category !== 'history' || !favoriteStatus(item.card).viewed) {
+                enqueue(item.card, item.category === 'history' ? 'history' : 'scan');
             }
-
-            enqueue(item.card, item.category === 'history' ? 'history' : 'scan');
         });
     }
 
@@ -952,7 +952,6 @@
         if (e.type === 'history' && (e.method === 'add' || e.method === 'added')) {
             if (favoriteStatus(e.card).viewed) return;
 
-            setFavoriteMark(normalizeCard(e.card), 'look');
             enqueue(e.card, 'history');
             return;
         }
