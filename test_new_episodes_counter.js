@@ -730,6 +730,21 @@ async function runTest(name, fn) {
         assert.strictEqual(counter.runtime.renderTimer > 0, true);
     });
 
+    await runTest('handleStateChanged ignores smart bookmarks plugin events', async () => {
+        const context = createContext({ favoriteState: { 10: { look: true } } });
+        const counter = loadCounter(context);
+
+        counter.handleStateChanged({
+            target: 'smart_bookmarks',
+            reason: 'update',
+            card: context.__card
+        });
+
+        assert.deepStrictEqual(Array.from(counter.runtime.queue), []);
+        assert.strictEqual(Object.keys(counter.runtime.queued).length, 0);
+        assert.strictEqual(counter.runtime.renderTimer, 0);
+    });
+
     console.log('new episodes counter tests: ok');
 })().catch((error) => {
     console.error(error);
